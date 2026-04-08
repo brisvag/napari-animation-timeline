@@ -4,4 +4,6 @@ except ImportError:
     __version__ = 'unknown'
 
 
-__all__ = ()
+from napari_animation_timeline.animation_timeline import AnimationTimeline
+
+__all__ = ('AnimationTimeline',)
