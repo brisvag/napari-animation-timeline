@@ -40,10 +40,11 @@ class AnimationTimeline(AnimationTimelineWidget):
             name: _resolve_attr_path(viewer, attr_path)
             for (name, attr_path) in _VIEWER_TRACK_OPTIONS.items()
         }
+        self.layer_track_options = {}
+        self.custom_track_options = {}
 
         super().__init__(track_options=self.viewer_track_options)
 
-        self.layer_track_options = {}
         self.viewer.layers.events.inserted.connect(self._update_layer_options)
         self.viewer.layers.events.removed.connect(self._update_layer_options)
 
@@ -64,11 +65,12 @@ class AnimationTimeline(AnimationTimelineWidget):
                 self.layer_track_options.pop(layer)
                 layer.events.name.disconnect(self._update_layer_track_names)
 
-        track_options = dict(self.viewer_track_options)
-        for l_opts in self.layer_track_options.values():
-            track_options.update(l_opts)
-
-        self.track_options = track_options
+    def _update_track_options(self):
+        self.track_options = (
+            self.viewer_track_options
+            | self.custom_track_options
+            | dict(self.layer_track_options.values())
+        )
 
     def _update_layer_track_names(self, event):
         layer = event.source
@@ -78,5 +80,19 @@ class AnimationTimeline(AnimationTimelineWidget):
             strict=True,
         ):
             new_name = name.format(layer_name=layer.name)
-            self.rename_track(track, new_name)
-            # print(track, new_name)
+            print(f'rename track {track} to {new_name}')
+
+    def add_custom_track(self, name: str, model: Any, attr: str):
+        """Add a custom animation track to the timeline.
+
+        A custom track can be added to control any model attribute.
+        For example, to control `my_model.color.hue`, you may pass:
+        `timeline.add_custom_track('MyModel hue', MyModel.color, 'hue')`
+        """
+        self.custom_track_options[name] = (model, attr)
+        self._update_track_options()
+
+    def remove_custom_track(self, name: str):
+        """Remove a previously added custom track."""
+        self.custom_track_options.pop(name)
+        self._update_track_options()
