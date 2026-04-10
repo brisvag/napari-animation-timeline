@@ -75,7 +75,7 @@ class AnimationTimeline(AnimationTimelineWidget):
         self._update_track_options()
 
     def _update_track_options(self):
-        self.track_options = (
+        self.animation.track_options = (
             self.viewer_track_options
             | self.custom_track_options
             | {
@@ -85,18 +85,22 @@ class AnimationTimeline(AnimationTimelineWidget):
             }
         )
         for track in list(self.animation.tracks):
-            if track.name not in self.track_options:
+            if track.name not in self.animation.track_options:
                 self.animation.remove_track(track)
 
     def _update_layer_track_names(self, event):
         layer = event.source
-        for _, name in zip(
-            self.layer_track_options[layer],
-            _LAYER_TRACK_OPTIONS.keys(),
+        new_opts = {}
+        for (old_name, old_val), name_template in zip(
+            self.layer_track_options[layer].items(),
+            _LAYER_TRACK_OPTIONS,
             strict=True,
         ):
-            new_name = name.format(layer_name=layer.name)
-            self.animation.rename_track(name, new_name)
+            new_name = name_template.format(layer_name=layer.name)
+            self.animation.rename_track(old_name, new_name)
+            new_opts[new_name] = old_val
+
+        self.layer_track_options[layer] = new_opts
 
     def add_custom_track(self, name: str, model: Any, attr: str):
         """Add a custom animation track to the timeline.
