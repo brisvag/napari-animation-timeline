@@ -11,16 +11,23 @@ if TYPE_CHECKING:
 # Each key: value pair is in the form:
 #     TrackName: 'attribute_path_from_source_model
 _VIEWER_TRACK_OPTIONS = {
-    'Dims': 'dims',
-    'Dims slider': 'dims.current_step',
-    'Camera': 'camera',
-    'Scale Bar': 'scale_bar',
+    'ndisplay': 'dims.ndisplay',
+    'dims slider': 'dims.point',
+    'dims margins': 'dims.thickness',
+    'dims ': 'dims.current_step',
+    'view direction': 'camera.angles',
+    'zoom': 'camera.zoom',
+    'dims': 'dims',
+    'camera': 'camera',
 }
 
 # {layer_name} will be replaced by the actual name
 _LAYER_TRACK_OPTIONS = {
-    '{layer_name} - Visibility': 'visible',
-    '{layer_name} - Opacity': 'opacity',
+    '{layer_name} - visibility': 'visible',
+    '{layer_name} - opacity': 'opacity',
+    '{layer_name} - blending': 'blending',
+    '{layer_name} - transform': '_transforms',
+    '{layer_name} - clipping planes': 'experimental_clipping_planes',
 }
 
 
@@ -65,22 +72,31 @@ class AnimationTimeline(AnimationTimelineWidget):
                 self.layer_track_options.pop(layer)
                 layer.events.name.disconnect(self._update_layer_track_names)
 
+        self._update_track_options()
+
     def _update_track_options(self):
         self.track_options = (
             self.viewer_track_options
             | self.custom_track_options
-            | dict(self.layer_track_options.values())
+            | {
+                k: v
+                for dct in self.layer_track_options.values()
+                for k, v in dct.items()
+            }
         )
+        for track in list(self.animation.tracks):
+            if track.name not in self.track_options:
+                self.animation.remove_track(track)
 
     def _update_layer_track_names(self, event):
         layer = event.source
-        for track, name in zip(
+        for _, name in zip(
             self.layer_track_options[layer],
             _LAYER_TRACK_OPTIONS.keys(),
             strict=True,
         ):
             new_name = name.format(layer_name=layer.name)
-            print(f'rename track {track} to {new_name}')
+            self.animation.rename_track(name, new_name)
 
     def add_custom_track(self, name: str, model: Any, attr: str):
         """Add a custom animation track to the timeline.

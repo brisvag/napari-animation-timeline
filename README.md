@@ -11,6 +11,8 @@
 
 A plugin to make napari animations using a detailed timeline with keyframes.
 
+
+
 ----------------------------------
 
 This [napari] plugin was generated with [copier] using the [napari-plugin-template] (None).
