@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from qt_animation_timeline import AnimationTimelineWidget
+from qtpy.QtWidgets import QGridLayout, QLabel, QPushButton, QSpinBox, QWidget
 
 if TYPE_CHECKING:
     import napari
@@ -39,7 +40,7 @@ def _resolve_attr_path(source: Any, path: str) -> tuple[Any, str]:
         source = getattr(source, attr)
 
 
-class AnimationTimeline(AnimationTimelineWidget):
+class AnimationTimeline(QWidget):
     def __init__(self, viewer: napari.viewer.ViewerModel):
         self.viewer = viewer
 
@@ -50,10 +51,42 @@ class AnimationTimeline(AnimationTimelineWidget):
         self.layer_track_options = {}
         self.custom_track_options = {}
 
-        super().__init__(track_options=self.viewer_track_options)
+        super().__init__()
+
+        self.fps_spinbox = QSpinBox()
+        self.fps_spinbox.setRange(1, 600)
+        self.duration_label = QLabel()
+        self.save_btn = QPushButton('Save animation...')
+        self.timeline = AnimationTimelineWidget(
+            track_options=self.viewer_track_options
+        )
+
+        layout = QGridLayout()
+        self.setLayout(layout)
+
+        # row, col, rowspan, colspan
+        layout.addWidget(QLabel('FPS:'), 0, 0, 1, 1)
+        layout.addWidget(self.fps_spinbox, 0, 1, 1, 1)
+        layout.addWidget(self.duration_label, 1, 0, 1, 2)
+        layout.addWidget(self.save_btn, 2, 0, 1, 2)
+        layout.addWidget(self.timeline, 0, 2, -1, -1)
+        layout.setColumnStretch(
+            2, 1000
+        )  # timeline should take as much as possible
 
         self.viewer.layers.events.inserted.connect(self._update_layer_options)
         self.viewer.layers.events.removed.connect(self._update_layer_options)
+        self.fps_spinbox.valueChanged.connect(self._update_fps)
+
+        self.timeline.animation.track_removed.connect(self._update_duration)
+        self.timeline.animation.keyframes_added.connect(self._update_duration)
+        self.timeline.animation.keyframes_removed.connect(
+            self._update_duration
+        )
+        self.timeline.animation.keyframes_moved.connect(self._update_duration)
+        self.timeline.animation.track_removed.connect(self._update_duration)
+
+        self.fps_spinbox.setValue(30)
 
     def _update_layer_options(self):
         for layer in self.viewer.layers:
@@ -75,7 +108,7 @@ class AnimationTimeline(AnimationTimelineWidget):
         self._update_track_options()
 
     def _update_track_options(self):
-        self.animation.track_options = (
+        self.timeline.animation.track_options = (
             self.viewer_track_options
             | self.custom_track_options
             | {
@@ -84,9 +117,9 @@ class AnimationTimeline(AnimationTimelineWidget):
                 for k, v in dct.items()
             }
         )
-        for track in list(self.animation.tracks):
-            if track.name not in self.animation.track_options:
-                self.animation.remove_track(track)
+        for track in list(self.timeline.animation.tracks):
+            if track.name not in self.timeline.animation.track_options:
+                self.timeline.animation.remove_track(track)
 
     def _update_layer_track_names(self, event):
         layer = event.source
@@ -97,7 +130,7 @@ class AnimationTimeline(AnimationTimelineWidget):
             strict=True,
         ):
             new_name = name_template.format(layer_name=layer.name)
-            self.animation.rename_track(old_name, new_name)
+            self.timeline.animation.rename_track(old_name, new_name)
             new_opts[new_name] = old_val
 
         self.layer_track_options[layer] = new_opts
@@ -116,3 +149,18 @@ class AnimationTimeline(AnimationTimelineWidget):
         """Remove a previously added custom track."""
         self.custom_track_options.pop(name)
         self._update_track_options()
+
+    def _update_fps(self):
+        self.timeline.animation.play_fps = self.fps_spinbox.value()
+        self._update_duration()
+
+    def _update_duration(self):
+        self.duration_label.setText(
+            f'Total duration:\n{self.timeline.animation.duration:.2f}s ({self.timeline.animation.n_frames} frames)'
+        )
+
+    def save(
+        self,
+        path,
+    ):
+        pass
