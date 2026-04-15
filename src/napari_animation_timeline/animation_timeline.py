@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from qt_animation_timeline import AnimationTimelineWidget
+from qt_animation_timeline import AnimationTimelineWidget, PlayMode
 from qtpy.QtWidgets import QGridLayout, QLabel, QPushButton, QSpinBox, QWidget
 
 if TYPE_CHECKING:
@@ -42,12 +43,17 @@ def _resolve_attr_path(source: Any, path: str) -> tuple[Any, str]:
 
 class AnimationTimeline(QWidget):
     def __init__(self, viewer: napari.viewer.ViewerModel):
+        # dirty trick, but we do stuff with private methods and we're evil...
+        viewer = viewer.__wrapped__
         self.viewer = viewer
 
         self.viewer_track_options = {
             name: _resolve_attr_path(viewer, attr_path)
             for (name, attr_path) in _VIEWER_TRACK_OPTIONS.items()
         }
+        # add viewer itself as a whole
+        self.viewer_track_options['viewer'] = (viewer, '')
+
         self.layer_track_options = {}
         self.custom_track_options = {}
 
@@ -76,7 +82,6 @@ class AnimationTimeline(QWidget):
 
         self.viewer.layers.events.inserted.connect(self._update_layer_options)
         self.viewer.layers.events.removed.connect(self._update_layer_options)
-        self.fps_spinbox.valueChanged.connect(self._update_fps)
 
         self.timeline.animation.track_removed.connect(self._update_duration)
         self.timeline.animation.keyframes_added.connect(self._update_duration)
@@ -85,6 +90,9 @@ class AnimationTimeline(QWidget):
         )
         self.timeline.animation.keyframes_moved.connect(self._update_duration)
         self.timeline.animation.track_removed.connect(self._update_duration)
+
+        self.save_btn.pressed.connect(self._save_dialogue)
+        self.fps_spinbox.valueChanged.connect(self._update_fps)
 
         self.fps_spinbox.setValue(30)
 
@@ -159,8 +167,83 @@ class AnimationTimeline(QWidget):
             f'Total duration:\n{self.timeline.animation.duration:.2f}s ({self.timeline.animation.n_frames} frames)'
         )
 
+    def _save_dialogue(self):
+        print('Not implemented')
+
     def save(
         self,
-        path,
+        filename,
+        quality=5,
+        canvas_only=True,
+        scale_factor=None,
     ):
-        pass
+        import imageio
+        from napari.utils.progress import cancelable_progress
+
+        anim = self.timeline.animation
+        fps = anim.play_fps
+
+        file_path = Path(filename)
+        folder_path = file_path.absolute().parent.joinpath(file_path.stem)
+        self._filename = file_path
+
+        save_as_folder = False
+        if file_path.suffix == '':
+            save_as_folder = True
+
+        # try to create an ffmpeg writer. If not installed default to folder creation
+        if save_as_folder is False:
+            try:
+                duration = 1000 / fps
+                # create imageio writer. Handle separately imageio-ffmpeg extensions and
+                # gif extension which doesn't accept the quality parameter.
+                if file_path.suffix in [
+                    '.mov',
+                    '.avi',
+                    '.mpg',
+                    '.mpeg',
+                    '.mp4',
+                    '.mkv',
+                    '.wmv',
+                ]:
+                    writer = imageio.get_writer(
+                        filename,
+                        fps=fps,
+                        quality=quality,
+                    )
+                else:
+                    writer = imageio.get_writer(
+                        filename,
+                        duration=duration,
+                    )
+            except ValueError as err:
+                print(err)
+                print('Your file will be saved as a series of PNG files')
+                save_as_folder = True
+
+        if save_as_folder:
+            folder_path.mkdir(exist_ok=True)
+
+        if self.timeline.is_playing():
+            self.timeline.toggle_playback()
+
+        mode = anim.play_mode
+
+        anim.play_mode = PlayMode.NORMAL
+        frame_iterator = self.timeline.animation.iter_frames()
+        frames = []
+
+        for _ in cancelable_progress(
+            frame_iterator, desc='Rendering animation...', total=anim.n_frames
+        ):
+            image = self.viewer.screenshot(
+                canvas_only=canvas_only, scale=scale_factor, flash=False
+            )
+            frames.append(image)
+        if mode == PlayMode.PINGPONG:
+            frames = frames + frames[::-1]
+
+        for frame in frames:
+            writer.append_data(frame)
+
+        anim.play_mode = mode
